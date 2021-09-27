@@ -1,0 +1,32 @@
+---
+title: "A recount of the quick-count"
+description: |
+  A four year jurney of model building!
+site: distill::distill_website
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+# Learn more about creating websites with Distill at:
+# https://rstudio.github.io/distill/website.html
+
+```
+
+In this site we describe our work in the Mexican Electoral quick-count, 
+we include the following:
+
+1. **Background**. Description of 2 methodologies that have been used in the past: 1) ratio estimation, and 2) a Normal Bayesian model.
+
+2. **Our first approach**. How we came up with the mixture model we used in the
+2018 state elections.
+
+3. **Our second approach**. Moving from governor to presidential election, 
+from JAGS to Stan (`r emo::ji("heart")`), and from mixture model to Negative Binomial.
+
+
+4. **Enhancements for 2021**. Review of past elections and better approaches.
+
+5. **Appendix 1**: Creating a model for simulating arrival times.
+
+6. **Appendix 2**: Using the bias correction approach with ratio estimation.

@@ -1,0 +1,17 @@
+name: "quickcount-recount"
+title: "A quickcount recount"
+description: |
+  Description of our models and workflow
+output_dir: "_site"
+navbar:
+  right:
+    - text: "Home"
+      href: index.html
+    - text: "About"
+      href: about.html
+    - text: "Publish"
+      menu:
+        - text: "Background"
+          href: 01-background.html
+bibliography: biblio.bib
+output: distill::distill_article

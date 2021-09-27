@@ -1,0 +1,147 @@
+---
+title: "Background"
+description: |
+  Problem description and pre-existing methodologies.
+bibliography: biblio.bib  
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+In Mexico, the elections take place on a Sunday, and the official results 
+are presented to the population several days after the election day. To prevent
+unjustified victory claims during that period, the electoral authority organizes 
+a quick count the same day of the election. With highly competed electoral 
+processes, the quick count has become very important, the rapidity and precision 
+of its results auspicious an environment of trust, and it serves as a tool 
+against fraud.
+
+The quick count consists in selecting a random sample of the polling stations 
+and estimating the percentage of votes in favor of each candidate. The electoral
+authority creates a committee of specialists in charge of the quick count, whose
+responsibilities encompass, mostly, the sample design, and the operation of 
+statistical methods to produce the inferences. The inferences are presented by
+probability intervals with an associated probability of at least 0.95.
+
+The information system starts at 6 p.m. and, every 5 minutes, collects all the 
+sample information sent. Thus, the system produces a sequence of accumulative 
+files used to determine the available percentage of the sample and its 
+distribution over the country. The partial samples are analysed with the 
+estimation methods to track the trend of the results. The quick-count results 
+are made public using one of these partial samples since the complete sample 
+takes too long to arrive. The committee reports a result when certain conditions 
+are met, such as the arrival of a large part of the sample and the stability in 
+the estimates of the last partial samples.
+
+The context of the quick count estimation problem is then as follows. We have a
+stratified sample designed by the committee, so we know the inclusion 
+probabilities and the strata weights. The key challenge is that we have to 
+estimate with incomplete samples, which may imply limited (or null) sample size 
+in some strata and where the missingness is not at random. In fact, the 
+probability that a polling station is not reported at a certain time depends 
+heavily on the response we intend to measure.
+
+
+## Existing approaches
+
+We will use as example the 2018 national counts, where the strata were defined
+by the federal districts (an electoral spatial unit, defined with states).
+
+```{r}
+library(tidyverse)
+library(quickcountmx)
+
+conteo_2018 <- conteo_2018 %>%
+    mutate(edo_distrito = paste(ID_ESTADO, ID_DISTRITO, sep = "-"))
+stratum_sizes <- conteo_2018%>% 
+    group_by(edo_distrito) %>%
+    summarise(n_stratum = n())
+
+glimpse(stratum_sizes)
+```
+
+Sample allocation was proportional to strata size.
+
+```{r}
+sample_2018 <- select_sample_prop(conteo_2018, stratum = edo_distrito, 0.06)
+```
+
+### Ratio estimator
+
+The combined ratio estimator is a frequently used approach. For a given candidate
+the estimate $\hat{p}$ is:
+
+$$\hat{p}=\frac{\sum_h \frac{N_h}{n_h} \sum_i Y_{hi}}{\sum_h \frac{N_h}{n_h} \sum_i X_{hi}}$$
+where:
+
+* $Y_{hi}$ total number of votes for the candidate in the $i$th polling station, 
+belonging to the $h$th stratum.
+
+* $X_{hi}$ total number of votes in the $i$th polling station, 
+belonging to the $h$th stratum. 
+
+* $N_h$ total number of polling stations in the $h$th stratum.
+
+* $n_h$ sample size for the $h$th stratum.
+
+With ths selected sample size we compute estimates using ratio estimator, and
+standard errors using bootstrap.
+
+```{r}
+ratio_2018 <- ratio_estimation(sample_2018, stratum = edo_distrito,
+  data_stratum = stratum_sizes, n_stratum = n_stratum, 
+  any_of(c("AMLO", "JAMK", "RAC", "CAND_IND_01", "CAND_IND_02")))
+
+ratio_2018 %>% 
+  mutate(across(where(is.numeric), round, 3))
+```
+
+### Bayesian Normal Model
+
+In [@mendoza2016] the authors propose to fit a model independently for each 
+candidate in each stratum, in the national election this would account for 
+1,500 models. For a given candidate, on a given stratum, the model is defined as
+follows:
+
+* **Likelihood**: let $X_{i}$ be the votes for the  candidate in the 
+$i$th polling station, then
+
+$$X_{i}\big|\theta,\tau\sim N\bigg(n_i\theta, \frac{\tau}{n_i}\bigg)$$
+
+For $i = 1,...,c$, where $c$ is the number of polling stations in the stratum,
+$n_i$ stands for the size of the nominal list (list of registered voters) in 
+the poll, $\tau$ is the 
+precision. Note that for each candidate, $\tau$ is assumed to be constant within 
+the corresponding stratum (and unrelated to $\theta$), and vote counts are 
+also assumed to be independent across candidates of the same stratum.
+
+* Prior distributions
+
+$$p(\theta,\tau)\propto \tau^{-1}I(\tau>0)I(0<\theta<1)$$
+
+* Posterior distribution
+
+$$p(\theta, \tau|X) \sim N\bigg(\theta \bigg| \frac{\sum_{i=1}^{c}x_{i}}{\sum_{i=1}^{c}n_{i}}, \tau\sum_{i=1}^{c}n_i\bigg)I(0<\theta<1)\times Ga\bigg(\tau\bigg|\frac{c-1}{2}, \frac{1}{2}\bigg[\sum_{i=1}^{c}\frac{x_{i}^2}{n_i}-\frac{\big(\sum_{i=1}^{c}x_{i}\big)^2}{\sum_{k=1}^{c_i}n_i}\bigg]\bigg)$$
+Finally, let us notice that $\theta$ (let us include the candidate for this, 
+$\theta_j$ for the 
+$j$th candidate) is defined as the proportion of people in the nominal list of
+the stratum whose preference is for the $\j$th candidate. However the parameters 
+of interest are not the $\theta_j$, since we
+are looking for the effective proportions of votes, so the authors define the 
+parameters of interest as:
+
+$$\lambda_{j}= \frac{\theta_j}{\sum_k \theta_k}$$
+
+We implement the model, and run for the same sample as ratio estimator:
+
+```{r}
+sample_2018 <- sample_2018 %>% 
+  mutate(LISTA_NOMINAL_CASILLA = ifelse(LISTA_NOMINAL_CASILLA == 0, 750,
+                                        LISTA_NOMINAL_CASILLA))
+nnp_2018 <- nnp_estimation(data = sample_2018, ln = LISTA_NOMINAL_CASILLA,
+  stratum = edo_distrito, data_stratum = stratum_sizes, n_stratum = n_stratum, 
+  any_of(c("AMLO", "JAMK", "RAC", "CAND_IND_01", "CAND_IND_02")), n_sims = 100)
+nnp_2018$lambdas_summary
+```
+
